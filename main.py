@@ -4,7 +4,6 @@ import fitz  # PyMuPDF
 import openpyxl
 from io import BytesIO
 import zipfile
-import subprocess
 import pikepdf
 import tempfile
 import logging
@@ -122,47 +121,6 @@ def preprocess_pdf_with_pikepdf(input_stream):
         st.error(f"⚠️ Failed to preprocess PDF with pikepdf: {e}")
         return None
 
-def preprocess_pdf_with_ghostscript(input_stream):
-    """
-    Attempt to preprocess the PDF using Ghostscript.
-    """
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as input_temp, \
-         tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as output_temp:
-        
-        # Write input PDF to temporary file
-        input_temp.write(input_stream.read())
-        input_temp.flush()
-        
-        try:
-            # Call Ghostscript to process the PDF
-            subprocess.run([
-                "gs",
-                "-sDEVICE=pdfwrite",
-                "-dNOPAUSE",
-                "-dBATCH",
-                "-dQUIET",
-                f"-sOutputFile={output_temp.name}",
-                input_temp.name
-            ], check=True)
-            
-            # Read the preprocessed PDF
-            with open(output_temp.name, 'rb') as f:
-                preprocessed_pdf = io.BytesIO(f.read())
-            preprocessed_pdf.seek(0)
-            logging.info("Successfully preprocessed PDF with Ghostscript.")
-            return preprocessed_pdf
-        except subprocess.CalledProcessError as e:
-            logging.error(f"Ghostscript preprocessing failed: {e}")
-            st.error(f"⚠️ Failed to preprocess PDF with Ghostscript: {e}")
-            return None
-        finally:
-            # Clean up temporary files
-            try:
-                os.remove(input_temp.name)
-                os.remove(output_temp.name)
-            except Exception as e:
-                logging.warning(f"Failed to delete temporary files: {e}")
-
 def highlight_text_in_pdf(file_content, selected_keywords, original_filename):
     """
     Highlight selected keywords in the PDF and return the updated PDF and keyword occurrences.
@@ -173,10 +131,10 @@ def highlight_text_in_pdf(file_content, selected_keywords, original_filename):
         pdf_file = io.BytesIO(file_content)
         pdf_document = fitz.open(stream=pdf_file, filetype="pdf")
     except fitz.fitz.FileDataError as e:
-        st.warning(f"⚠️ {original_filename} has structural issues. Attempting to preprocess...")
+        st.warning(f"⚠️ {original_filename} has structural issues. Attempting to preprocess with pikepdf...")
         logging.warning(f"{original_filename} has structural issues: {e}")
 
-        # Attempt preprocessing with pikepdf first
+        # Attempt preprocessing with pikepdf
         preprocessed_pdf = preprocess_pdf_with_pikepdf(io.BytesIO(file_content))
         
         if preprocessed_pdf:
@@ -184,41 +142,12 @@ def highlight_text_in_pdf(file_content, selected_keywords, original_filename):
                 pdf_document = fitz.open(stream=preprocessed_pdf, filetype="pdf")
                 st.success(f"✅ Successfully preprocessed {original_filename} with pikepdf.")
             except Exception as e:
-                st.warning(f"⚠️ Preprocessing with pikepdf failed. Attempting with Ghostscript...")
-                logging.warning(f"Preprocessing with pikepdf failed for {original_filename}: {e}")
-                
-                # Attempt preprocessing with Ghostscript
-                preprocessed_pdf_gs = preprocess_pdf_with_ghostscript(io.BytesIO(file_content))
-                
-                if preprocessed_pdf_gs:
-                    try:
-                        pdf_document = fitz.open(stream=preprocessed_pdf_gs, filetype="pdf")
-                        st.success(f"✅ Successfully preprocessed {original_filename} with Ghostscript.")
-                    except Exception as e:
-                        st.error(f"⚠️ Failed to process {original_filename} even after preprocessing. Error: {e}")
-                        logging.error(f"Failed to open preprocessed PDF with Ghostscript for {original_filename}: {e}")
-                        return None, None
-                else:
-                    st.error(f"⚠️ Failed to preprocess {original_filename} with both pikepdf and Ghostscript.")
-                    return None, None
-        else:
-            st.warning(f"⚠️ Preprocessing with pikepdf failed. Attempting with Ghostscript...")
-            logging.warning(f"Preprocessing with pikepdf failed for {original_filename}. Trying Ghostscript.")
-
-            # Attempt preprocessing with Ghostscript
-            preprocessed_pdf_gs = preprocess_pdf_with_ghostscript(io.BytesIO(file_content))
-            
-            if preprocessed_pdf_gs:
-                try:
-                    pdf_document = fitz.open(stream=preprocessed_pdf_gs, filetype="pdf")
-                    st.success(f"✅ Successfully preprocessed {original_filename} with Ghostscript.")
-                except Exception as e:
-                    st.error(f"⚠️ Failed to process {original_filename} even after preprocessing. Error: {e}")
-                    logging.error(f"Failed to open preprocessed PDF with Ghostscript for {original_filename}: {e}")
-                    return None, None
-            else:
-                st.error(f"⚠️ Failed to preprocess {original_filename} with both pikepdf and Ghostscript.")
+                st.error(f"⚠️ Failed to process {original_filename} even after preprocessing. Error: {e}")
+                logging.error(f"Failed to open preprocessed PDF with pikepdf for {original_filename}: {e}")
                 return None, None
+        else:
+            st.error(f"⚠️ Failed to preprocess {original_filename} with pikepdf.")
+            return None, None
 
     except Exception as e:
         st.error(f"⚠️ An unexpected error occurred while opening {original_filename}: {e}")
