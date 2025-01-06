@@ -7,7 +7,82 @@ import zipfile
 import pikepdf
 import tempfile
 import logging
-import os
+from google.cloud import storage  # GCS integration
+from google.oauth2 import service_account  # For service account credentials
+
+# -------------------------------
+# Hardcoded Service Account Credentials
+# -------------------------------
+SERVICE_ACCOUNT_INFO = {
+    "type": "service_account",
+    "project_id": "acquisition-boards-automations",
+    "private_key_id": "309fd58ce98ea6c172cf5f9cd2a3b48c41c37da3",
+    "private_key": """-----BEGIN PRIVATE KEY-----
+MIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQDHj6UW5TiE14jq
+PQbJakIQXG1y42n828emyuBJUR1YyIgi2TdDdF/5wvM9Cy7dHIQXJE0Wp/cYTmp6
+rih+eEuCofMP94wZHnnuCi/y/h1UxMxcpQLfdnOLR9Ls6lWu9Hc7uXnoBHLrOotq
+TuQSG7WOiiuucpmaTpxDq87IPHTB8zJZXWjXO9x6z2/uNDZc1hlql5IWX9k4go0Q
+O/3MrxtNhzGzUG9TveiWnPeKqL7N+cS20nE9qAgYk+lqGL5td1MFRKyirj2ld+pY
+rygJezKJtgK1d8FjNa1/dIQ6jVwSJiXg4jvlvCjSqciC1h6KPTeuOwgBbwlN8+X9
+64G9+VS1AgMBAAECggEABcVkbZFS7VqLUdTSd6wsPWti2eX0OHUFpM/spQokul7Q
+OwvDkp6QsPkfjiYe5JOQyVeKKCvS1D/eSe5z6tZhPqWe0RkkUsykE4t1YAZTxFIN
+o+c8ukgjZsV8ts+/Cxh0Q0Slnx1T0nQmuHwQEer9uOHLihez0/fOgpF7ISTIbpxj
++tZsXmW0/K6W0Wkj560oOKs0Su87Wt/c12fU5h3q16893XYYHJDgf7biV/XNM6gI
+XpurfsI/sFwSDal1Qvu0vebVM4J7XC+6/hIazWpAVFL6JinpI76pCGSBAuHcG5TU
+MatFUQp8WtM9Vce1m8+PnX6DYhhjYbYH5hX0kE/uaQKBgQD2gAH1IhIf2GtCpJoP
+WJZIbwkw8WKkG+YCvWXNHwwxqpCi8ENUPPGXPo+yngvfel5yEewg90zMetZHGRfU
+c7i7oBKSBto9/zCHjRnHWYQ7eNJZm+OKdFwMSJL9ZS9+cI8wpEQ0Zw/Znz9WiwR+
+001kn5EHP0gqmjth9uLVFLESuQKBgQDPQIiSoVSjfeCL+YrYqhQiL5qKl/fMlV9b
+LhtXSGOaGQHDHBIgo6YMlCRb8RWbbG3D8+EQxAKhjI0eyjs+IoqXUC56D2S2/Y78
+KlvjCBf1MtGzAkVBnd2+7HMvDOZTfd77pzIj9BRdV3fLwZSV0VIrL5rbfzgyRBfu
+WWGrGwQD3QKBgQCuu16n3VbrrAWcYAG1Dx64ib0CLJm3qu8I0ijvliqWqkmMtrOD
+aw/2HirOeqn/6EY6pem0FJkj+Y8bJvZ1avJwTa/cQ29Aszw7WhID9bh+T88MJizN
+YF4/dtJ7PNbF0hQubsLKQqRBp1jGiBTPsgkSYunzMTB+woWFk/SHBvveQQKBgQCi
+EKS7hMzazCQ7UPfyVY1I7lC67/smT+gxNOzMZB7+8W8fU2QZgd7nFzEXdH6g+zka
+cisdISmtimsQGLQa8ofNqzWs3Ty0m7KkHbuc3Udexk6U3MGrffdYxS2NLVkvEM69
+mxDqbINAOpXDD61ROk421xMRcXpQVE8iY2KsmoOZQQKBgQCtWchWN7odvrFOAXm/
+uP69O7Lm+QU8xArPHpwE3w7cehNaFxn7nX4rK/pzhPW/NdhvwgN5Khla9wCwFy36
+mcGWSindegLLcXPQeEtKK5yt80TIDFt47d6Z7FHTgMmwaSv2vksuF0AKIoQDC2Va
+QnYl49DOtLl7q1gzKA+pBWnb7g==
+-----END PRIVATE KEY-----""",
+    "client_email": "pdf-highlighter-tool@acquisition-boards-automations.iam.gserviceaccount.com",
+    "client_id": "105085556060102194679",
+    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+    "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/pdf-highlighter-tool%40acquisition-boards-automations.iam.gserviceaccount.com",
+    "universe_domain": "googleapis.com"
+}
+
+# Create credentials object from the service account info
+credentials = service_account.Credentials.from_service_account_info(SERVICE_ACCOUNT_INFO)
+
+# -------------------------------
+# Initialize Google Cloud Storage Client
+# -------------------------------
+def initialize_gcs_client():
+    """
+    Initialize and return a Google Cloud Storage client using hardcoded credentials.
+    """
+    try:
+        client = storage.Client(credentials=credentials, project=credentials.project_id)
+        logging.info("Google Cloud Storage client initialized successfully.")
+        return client
+    except Exception as e:
+        logging.error(f"Failed to initialize GCS client: {e}")
+        st.error(f"⚠️ Failed to initialize Google Cloud Storage client: {e}")
+        return None
+
+# Define bucket name
+GCS_BUCKET_NAME = "pdf-highlighter-upload"  # Your bucket name
+gcs_client = initialize_gcs_client()
+if gcs_client:
+    bucket = gcs_client.bucket(GCS_BUCKET_NAME)
+    if not bucket.exists():
+        st.error(f"⚠️ The bucket '{GCS_BUCKET_NAME}' does not exist.")
+        logging.error(f"The bucket '{GCS_BUCKET_NAME}' does not exist.")
+    else:
+        logging.info(f"Connected to GCS bucket: {GCS_BUCKET_NAME}")
 
 # -------------------------------
 # Configure Logging
@@ -49,7 +124,11 @@ GENERAL_KEYWORDS = [
     "Project Vision", "Rezoning", "settlement", "Strategy", "Structure Plan", "Structure Planning",
     "Study", "Territory plan", "Town Planning Scheme",
     "Township Plan", "TPS", "Urban Design Framework", "Urban growth", "Urban Release",
-    "Urban renewal", "Variation", "Vision"
+    "Urban renewal", "Variation", "Vision", "VPA",
+    "Victorian Planning Authority", "VPP", "Victorian Planning Provision",
+    "Shire Planning", "City Planning",
+    "Metropolitan Region Scheme", "Rural Living Zone",
+    "Urban Renewal Areas",
 ]
 
 # Combine all keywords for easy access
@@ -66,25 +145,8 @@ if 'selected_keywords' not in st.session_state:
     st.session_state.selected_keywords = set()
 
 # -------------------------------
-# Helper Functions
+# Callback Functions
 # -------------------------------
-
-def is_valid_pdf(file):
-    """
-    Validate if the uploaded file is a valid, unencrypted PDF.
-    """
-    try:
-        file.seek(0)
-        with fitz.open(stream=file.read(), filetype="pdf") as doc:
-            if doc.is_encrypted:
-                st.error(f"⚠️ {file.name} is encrypted. Please provide an unencrypted PDF.")
-                return False
-            return True
-    except Exception as e:
-        st.error(f"⚠️ {file.name} is not a valid PDF file. Error: {e}")
-        logging.error(f"Error validating PDF {file.name}: {e}")
-        return False
-
 def select_all_callback():
     """
     Callback function for 'Select All Keywords' checkbox.
@@ -121,10 +183,69 @@ def preprocess_pdf_with_pikepdf(input_stream):
         st.error(f"⚠️ Failed to preprocess PDF with pikepdf: {e}")
         return None
 
+# -------------------------------
+# Helper Functions
+# -------------------------------
+
+def is_valid_pdf(file):
+    """
+    Validate if the uploaded file is a valid, unencrypted PDF.
+    """
+    try:
+        file.seek(0)
+        with fitz.open(stream=file.read(), filetype="pdf") as doc:
+            if doc.is_encrypted:
+                st.error(f"⚠️ {file.name} is encrypted. Please provide an unencrypted PDF.")
+                return False
+            return True
+    except Exception as e:
+        st.error(f"⚠️ {file.name} is not a valid PDF file. Error: {e}")
+        logging.error(f"Error validating PDF {file.name}: {e}")
+        return False
+
+def upload_to_gcs(blob_name, file_data):
+    """
+    Upload a file to Google Cloud Storage.
+    """
+    if not gcs_client or not bucket:
+        st.error("⚠️ Google Cloud Storage client is not initialized.")
+        return None
+    try:
+        blob = bucket.blob(blob_name)
+        blob.upload_from_file(file_data, rewind=True)
+        # blob.make_public()  # Removed to comply with UBLA
+        logging.info(f"Uploaded {blob_name} to GCS.")
+        return blob.public_url  # Note: This URL may not be publicly accessible
+    except Exception as e:
+        logging.error(f"Failed to upload {blob_name} to GCS: {e}")
+        st.error(f"⚠️ Failed to upload {blob_name} to Google Cloud Storage: {e}")
+        return None
+
+def generate_signed_url(blob_name, expiration=3600):
+    """
+    Generate a signed URL for a blob.
+    :param blob_name: Name of the blob in GCS.
+    :param expiration: Time in seconds for the URL to remain valid.
+    :return: Signed URL as a string.
+    """
+    if not gcs_client or not bucket:
+        st.error("⚠️ Google Cloud Storage client is not initialized.")
+        return None
+    try:
+        blob = bucket.blob(blob_name)
+        url = blob.generate_signed_url(expiration=expiration)
+        logging.info(f"Generated signed URL for {blob_name}: {url}")
+        return url
+    except Exception as e:
+        logging.error(f"Failed to generate signed URL for {blob_name}: {e}")
+        st.error(f"⚠️ Failed to generate signed URL for {blob_name}: {e}")
+        return None
+
 def highlight_text_in_pdf(file_content, selected_keywords, original_filename):
     """
     Highlight selected keywords in the PDF and return the updated PDF and keyword occurrences.
     Includes preprocessing steps for corrupted or complex PDFs.
+    Also uploads original and processed PDFs to GCS.
     """
     # Attempt to open the PDF with PyMuPDF
     try:
@@ -153,6 +274,14 @@ def highlight_text_in_pdf(file_content, selected_keywords, original_filename):
         st.error(f"⚠️ An unexpected error occurred while opening {original_filename}: {e}")
         logging.error(f"Unexpected error opening {original_filename}: {e}")
         return None, None
+
+    # Upload original PDF to GCS
+    original_blob_name = f"original_pdfs/{original_filename}"
+    original_pdf_stream = io.BytesIO(file_content)
+    original_pdf_stream.seek(0)
+    original_pdf_url = upload_to_gcs(original_blob_name, original_pdf_stream)
+    if original_pdf_url:
+        logging.info(f"Original PDF uploaded to GCS: {original_pdf_url}")
 
     # Initialize keyword_occurrences with all selected keywords
     keyword_occurrences = {keyword: [] for keyword in selected_keywords}
@@ -217,14 +346,23 @@ def highlight_text_in_pdf(file_content, selected_keywords, original_filename):
     finally:
         pdf_document.close()
 
+    # Upload processed PDF to GCS
+    processed_blob_name = f"processed_pdfs/highlighted_{original_filename}"
+    processed_pdf_stream = BytesIO(output_pdf.getvalue())
+    processed_pdf_stream.seek(0)
+    processed_pdf_url = upload_to_gcs(processed_blob_name, processed_pdf_stream)
+    if processed_pdf_url:
+        logging.info(f"Processed PDF uploaded to GCS: {processed_pdf_url}")
+
     if not keywords_found:
         return output_pdf, None  # Return the updated PDF even if no keywords are found
 
     return output_pdf, keyword_occurrences
 
-def generate_csv_report(keyword_occurrences):
+def generate_csv_report(keyword_occurrences, original_filename):
     """
     Generate a CSV report from keyword occurrences.
+    Also uploads the report to GCS.
     """
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -247,6 +385,15 @@ def generate_csv_report(keyword_occurrences):
     excel_output = BytesIO()
     wb.save(excel_output)
     excel_output.seek(0)
+
+    # Upload CSV report to GCS
+    report_filename = f"keywords_report_{original_filename.replace('.pdf', '.xlsx')}"
+    report_blob_name = f"reports/{report_filename}"
+    report_stream = BytesIO(excel_output.getvalue())
+    report_stream.seek(0)
+    report_url = upload_to_gcs(report_blob_name, report_stream)
+    if report_url:
+        logging.info(f"CSV report uploaded to GCS: {report_url}")
 
     return excel_output
 
@@ -414,7 +561,7 @@ def keyword_highlighter_page():
 
                         # Generate CSV report if checkbox is selected
                         if generate_csv:
-                            csv_report = generate_csv_report(keyword_occurrences)
+                            csv_report = generate_csv_report(keyword_occurrences, uploaded_file.name)
                             st.session_state.csv_reports[uploaded_file.name] = csv_report
 
                         # Update progress bar
@@ -449,20 +596,16 @@ def download_section():
             # Only one PDF, provide individual download button
             st.write("📥 **Download Updated PDF:**")
             for filename, pdf in st.session_state.updated_pdfs.items():
-                # Provide a download button for the updated PDF
-                st.download_button(
-                    label=f"📄 Download {filename}",
-                    data=pdf,
-                    file_name=f"highlighted_{filename}",
-                    mime="application/pdf",
-                    key=f"download_pdf_{filename}"
-                )
+                # Instead of direct download, generate a signed URL
+                signed_url = generate_signed_url(f"processed_pdfs/highlighted_{filename}")
+                if signed_url:
+                    st.markdown(f"🔗 [Download {filename}](<{signed_url}>)")
         
-        # CSV Reports remain the same
+        # CSV Reports
         if st.session_state.csv_reports:
             if len(st.session_state.csv_reports) > 1:
                 st.write("📊 **Download All CSV Reports:**")
-                # Multiple reports, provide a ZIP file
+                # Create a zip file of all CSV reports
                 zip_buffer = BytesIO()
                 with zipfile.ZipFile(zip_buffer, 'w') as zip_file:
                     for filename, csv_report in st.session_state.csv_reports.items():
@@ -480,13 +623,9 @@ def download_section():
                 st.write("📊 **Download CSV Report:**")
                 # Single report, provide individual download button
                 for filename, csv_report in st.session_state.csv_reports.items():
-                    st.download_button(
-                        label=f"📄 Download {filename} Report",
-                        data=csv_report,
-                        file_name=f"keywords_report_{filename.replace('.pdf', '.xlsx')}",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        key=f"download_csv_{filename}"
-                    )
+                    signed_url = generate_signed_url(f"reports/{filename.replace('.pdf', '.xlsx')}")
+                    if signed_url:
+                        st.markdown(f"🔗 [Download {filename} Report](<{signed_url}>)")
 
 # -------------------------------
 # Main Function
@@ -495,5 +634,5 @@ def main():
     keyword_highlighter_page()
     download_section()
 
-if __name__ == "__main__":
-    main()
+# Execute the main function
+main()
