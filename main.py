@@ -593,13 +593,18 @@ def download_section():
                 key="download_all_pdfs"
             )
         else:
-            # Only one PDF, provide individual download button
+             # Only one PDF in updated_pdfs
             st.write("📥 **Download Updated PDF:**")
-            for filename, pdf in st.session_state.updated_pdfs.items():
-                # Instead of direct download, generate a signed URL
-                signed_url = generate_signed_url(f"processed_pdfs/highlighted_{filename}")
-                if signed_url:
-                    st.markdown(f"🔗 [Download {filename}](<{signed_url}>)")
+            # Extract the single PDF from the dictionary
+            (filename, pdf_stream) = list(st.session_state.updated_pdfs.items())[0]
+
+            # Provide a direct download button
+            st.download_button(
+                label=f"📄 Download {filename}",
+                data=pdf_stream.getvalue(),            # The PDF bytes in memory
+                file_name=f"highlighted_{filename}",   # Name to show in "Save As..."
+                mime="application/pdf"
+            )
         
         # CSV Reports
         if st.session_state.csv_reports:
